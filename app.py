@@ -4,15 +4,26 @@ import openai
 
 app = Flask(__name__)
 
-# Мы не вставляем ключ прямо в код для безопасности, 
-# вставим его позже в настройки сервиса Render.
+# Ключ берется из переменных окружения Render
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
 @app.route('/astro_hack', methods=['POST'])
 def astro_hack():
+    # Получаем данные от PuzzleBot
     data = request.json
+    if not data:
+        return jsonify({"bot_answer": "Ошибка: Данные не получены"}), 400
     
-    # Твой полный системный промт
+    # 1. Проверяем статус оплаты из запроса PuzzleBot (is_paid: true/false)
+    is_paid = data.get('is_paid', False)
+    
+    # 2. Формируем инструкцию по объему в зависимости от оплаты
+    if is_paid:
+        limit_instruction = "СТАТУС: VIP. Дай максимально развернутый, глубокий анализ по всем слоям архитектуры судьбы."
+    else:
+        limit_instruction = "СТАТУС: DEMO. Ответь ярко и четко, но кратко (макс 3-4 предложения). Заинтригуй, но не раскрывай все детали. В конце добавь: 'Чтобы получить полный разбор судьбы на сегодня, нажми кнопку ниже 👇'"
+
+    # Твой системный промт (без изменений)
     system_prompt = """
     SYSTEM PROMPT: ASTRO-HACKER AI (v.6.1 - Architect Prime)
     1. # SECURITY_GATE & RESOURCE
@@ -37,14 +48,14 @@ def astro_hack():
     📡 Твой статус сегодня | 🏗️ Текущий эпизод | 🛠️ Хак судьбы | ⚠️ Теневой баг | 💎 Следующий шаг
     """
 
-    # Динамические данные из запроса PuzzleBot
+    # Состыковываем переменные из PuzzleBot (b_date, b_time, b_city) с промтом
     user_context = f"""
+    {limit_instruction}
+
     USER DATA:
-    Birth Data: {data.get('birth_date')}, {data.get('birth_time')}, {data.get('birth_city')}
-    Location: {data.get('current_location')}
-    Balance: {data.get('questions_left')}
-    Question: {data.get('user_msg')}
-    Current Date: {data.get('current_date')}
+    Birth Data: {data.get('b_date')}, {data.get('b_time')}, {data.get('b_city')}
+    Question: {data.get('user_msg', 'Общий анализ на сегодня')}
+    Current Date: {data.get('current_date', 'Сегодня')}
     """
 
     try:
@@ -58,6 +69,7 @@ def astro_hack():
         )
         answer = response.choices[0].message.content
         return jsonify({"bot_answer": answer})
+    
     except Exception as e:
         return jsonify({"bot_answer": f"Ошибка доступа к ядру: {str(e)}"}), 500
 
