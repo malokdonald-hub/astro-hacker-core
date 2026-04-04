@@ -5,7 +5,7 @@ import openai
 app = Flask(__name__)
 
 # Ключ берется из переменных окружения Render
-openai.api_key = os.getenv("OPENAI_API_KEY")
+openai_api_key = os.getenv("OPENAI_API_KEY")
 
 @app.route('/astro_hack', methods=['POST'])
 def astro_hack():
@@ -23,7 +23,7 @@ def astro_hack():
     else:
         limit_instruction = "СТАТУС: DEMO. Ответь ярко и четко, но кратко (макс 3-4 предложения). Заинтригуй, но не раскрывай все детали. В конце добавь: 'Чтобы получить полный разбор судьбы на сегодня, нажми кнопку ниже 👇'"
 
-    # Твой системный промт (без изменений)
+    # Твой системный промт
     system_prompt = """
     SYSTEM PROMPT: ASTRO-HACKER AI (v.6.1 - Architect Prime)
     1. # SECURITY_GATE & RESOURCE
@@ -48,7 +48,7 @@ def astro_hack():
     📡 Твой статус сегодня | 🏗️ Текущий эпизод | 🛠️ Хак судьбы | ⚠️ Теневой баг | 💎 Следующий шаг
     """
 
-    # Состыковываем переменные из PuzzleBot (b_date, b_time, b_city) с промтом
+    # Состыковываем переменные
     user_context = f"""
     {limit_instruction}
 
@@ -59,7 +59,9 @@ def astro_hack():
     """
 
     try:
-        response = openai.ChatCompletion.create(
+        # Новый формат вызова OpenAI (версия 1.0.0+)
+        client = openai.OpenAI(api_key=openai_api_key)
+        response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": system_prompt},
@@ -71,6 +73,7 @@ def astro_hack():
         return jsonify({"bot_answer": answer})
     
     except Exception as e:
+        # Если ошибка, мы увидим её текст прямо в Telegram
         return jsonify({"bot_answer": f"Ошибка доступа к ядру: {str(e)}"}), 500
 
 if __name__ == '__main__':
