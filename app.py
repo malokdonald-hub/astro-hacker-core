@@ -12,7 +12,7 @@ def astro_hack():
     # Получаем данные от PuzzleBot
     data = request.json
     if not data:
-        return jsonify({"bot_answer": "Ошибка: Данные не получены"}), 400
+        return "Ошибка: Данные не получены", 400
     
     # 1. Проверяем статус оплаты
     is_paid = data.get('is_paid', False)
@@ -47,10 +47,12 @@ def astro_hack():
             temperature=0.7
         )
         answer = response.choices[0].message.content
-        return jsonify({"bot_answer": answer})
+        # Возвращаем просто текст прогноза
+        return answer
     
     except Exception as e:
-        return jsonify({"bot_answer": f"Ошибка ядра: {str(e)}"}), 500
+        # Возвращаем текст ошибки
+        return f"Ошибка ядра: {str(e)}", 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
