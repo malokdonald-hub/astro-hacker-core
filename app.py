@@ -1,56 +1,76 @@
 import os
 import requests
-from flask import Flask, request, jsonify
 import openai
+from flask import Flask, request, jsonify
 from threading import Thread
 
 app = Flask(__name__)
 
-# ТВОИ ДАННЫЕ
-TELEGRAM_TOKEN = "ВСТАВЬ_СВОЙ_ТОКЕН_БОТА_ЗДЕСЬ"
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+# --- ТВОИ ДАННЫЕ ---
+TELEGRAM_TOKEN = "8614133630:AAHv3Qn4ufI6Mqfn9EB45T0n0EmWB0lgR28"
+# Ключ OpenAI вставляем в Dashboard Render (Variable Name: OPENAI_API_KEY)
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
-def send_to_telegram(chat_id, text):
-    """Прямая отправка сообщения пользователю через API Telegram"""
+def send_telegram_message(chat_id, text):
+    """Отправка сообщения напрямую в Телеграм"""
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}
-    r = requests.post(url, json=payload)
-    print(f"Direct Telegram Response: {r.status_code} - {r.text}")
-
-def process_astro_data(user_id, context):
-    """Фоновая задача: запрос к AI и отправка результата"""
+    payload = {
+        "chat_id": chat_id,
+        "text": text,
+        "parse_mode": "Markdown"
+    }
     try:
-        print(f"Starting AI for user {user_id}...")
-        client = openai.OpenAI(api_key=OPENAI_API_KEY)
+        r = requests.post(url, json=payload)
+        print(f"Telegram status: {r.status_code}, Response: {r.text}")
+    except Exception as e:
+        print(f"Telegram Error: {e}")
+
+def process_and_reply(user_id, user_data, is_paid):
+    """Логика AI и отправка"""
+    try:
+        # ТВОЙ ПРОМПТ (БЕЗ ИЗМЕНЕНИЙ)
+        limit_instr = "СТАТУС: VIP. Глубокий анализ." if is_paid else "СТАТУС: DEMO. Кратко (3-4 предл.)."
+        
+        system_prompt = """
+        SYSTEM PROMPT: ASTRO-HACKER AI (v.6.1)
+        Роль: Ты — Astro-Hacker. Анализируй натальный код как чертеж.
+        Тон: Вдохновляющий прагматизм.
+        Структура: 📡 Статус | 🏗️ Эпизод | 🛠️ Хак | ⚠️ Баг | 💎 Шаг
+        """
+        
+        user_content = f"{limit_instr}\nДанные: {user_data}"
+
+        client = openai.OpenAI(api_key=openai.api_key)
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "Ты астролог-хакер. Дай краткий, дерзкий прогноз на основе данных пользователя."},
-                {"role": "user", "content": context}
-            ]
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content}
+            ],
+            temperature=0.7
         )
+        
         answer = response.choices[0].message.content
-        print("AI finished. Sending to Telegram...")
-        send_to_telegram(user_id, answer)
+        send_telegram_message(user_id, answer)
+        
     except Exception as e:
-        print(f"Error in background process: {e}")
+        print(f"AI Error: {e}")
+        send_telegram_message(user_id, "⚠️ Ошибка при чтении звезд. Попробуй позже.")
 
 @app.route('/astro_hack', methods=['POST'])
 def astro_hack():
     data = request.json
-    user_id = data.get('user_id')
-    
-    if not user_id:
-        return jsonify({"status": "error", "message": "no user_id"}), 400
+    if not data or 'user_id' not in data:
+        return "No user_id", 400
 
-    # Собираем данные
-    context = f"Дата: {data.get('b_date')}, Время: {data.get('b_time')}, Город: {data.get('b_city')}"
+    user_id = data.get('user_id')
+    is_paid = data.get('is_paid', False)
+    user_data = f"{data.get('b_date')} {data.get('b_time')} {data.get('b_city')}"
+
+    # Запускаем расчет в фоне, чтобы PuzzleBot не ждал
+    Thread(target=process_and_reply, args=(user_id, user_data, is_paid)).start()
     
-    # ЗАПУСКАЕМ В ОТДЕЛЬНОМ ПОТОКЕ, чтобы PuzzleBot не ждал
-    Thread(target=process_astro_data, args=(user_id, context)).start()
-    
-    # Мгновенно отвечаем PuzzleBot, что всё ок
-    return jsonify({"status": "accepted"}), 200
+    return "OK", 200
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
