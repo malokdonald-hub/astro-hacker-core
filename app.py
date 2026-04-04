@@ -1,28 +1,38 @@
 import os
+import requests
 from flask import Flask, request, jsonify
 import openai
 
 app = Flask(__name__)
 
-# Ключ берется из переменных окружения Render
+# Ключи берутся из переменных окружения Render
 openai_api_key = os.getenv("OPENAI_API_KEY")
+
+# ВСТАВЬ СВОЙ ТОКЕН НИЖЕ (между кавычками)
+TELEGRAM_TOKEN = "ТВОЙ_ТОКЕН_ИЗ_BOTFATHER"
 
 @app.route('/astro_hack', methods=['POST'])
 def astro_hack():
     # Получаем данные от PuzzleBot
     data = request.json
     if not data:
-        return "Ошибка: Данные не получены", 400
+        return "No Data", 400
     
+    # Получаем ID пользователя для прямой отправки сообщения
+    user_id = data.get('user_id')
+    if not user_id:
+        return "No User ID", 400
+
     # 1. Проверяем статус оплаты
     is_paid = data.get('is_paid', False)
     
-    # 2. Инструкция по объему
+    # 2. Инструкция по объему (ТВОЯ ЛОГИКА)
     if is_paid:
         limit_instruction = "СТАТУС: VIP. Дай максимально развернутый, глубокий анализ."
     else:
         limit_instruction = "СТАТУС: DEMO. Ответь ярко, но кратко (макс 3-4 предложения). В конце добавь: 'Чтобы получить полный разбор, нажми кнопку ниже 👇'"
 
+    # ТВОЙ ПРОМПТ (БЕЗ ИЗМЕНЕНИЙ)
     system_prompt = """
     SYSTEM PROMPT: ASTRO-HACKER AI (v.6.1)
     Роль: Ты — Astro-Hacker. Анализируй натальный код как чертеж.
@@ -37,6 +47,7 @@ def astro_hack():
     """
 
     try:
+        # Запрос к OpenAI
         client = openai.OpenAI(api_key=openai_api_key)
         response = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -47,12 +58,20 @@ def astro_hack():
             temperature=0.7
         )
         answer = response.choices[0].message.content
-        # Возвращаем просто текст прогноза
-        return answer
+
+        # ОТПРАВКА НАПРЯМУЮ В ТЕЛЕГРАМ (РЕШЕНИЕ ТАЙМАУТА)
+        send_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        requests.post(send_url, json={
+            "chat_id": user_id,
+            "text": answer,
+            "parse_mode": "Markdown"
+        })
+        
+        # PuzzleBot мгновенно получает 'OK' и не виснет
+        return "OK", 200
     
     except Exception as e:
-        # Возвращаем текст ошибки
-        return f"Ошибка ядра: {str(e)}", 500
+        return f"Error: {str(e)}", 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
