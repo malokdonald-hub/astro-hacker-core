@@ -1,55 +1,40 @@
-import os
-import requests
+import telebot
 import openai
-from flask import Flask, request
-from threading import Thread
+import os
 
-app = Flask(__name__)
-
-# --- ВСЕ ДАННЫЕ ВПИСАНЫ НАПРЯМУЮ ---
+# --- ТВОИ ДАННЫЕ (ВСТАВЛЕНЫ НАПРЯМУЮ) ---
 TELEGRAM_TOKEN = "8614133630:AAHv3Qn4ufI6Mqfn9EB45T0n0EmWB0lgR28"
-AI_KEY = "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"
+OPENAI_API_KEY = "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"
 
-def send_telegram(chat_id, text):
-    if not chat_id:
-        return
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    try:
-        requests.post(url, json={"chat_id": chat_id, "text": text})
-    except:
-        pass
+bot = telebot.TeleBot(TELEGRAM_TOKEN)
+client = openai.OpenAI(api_key=OPENAI_API_KEY)
 
-def process_and_reply(user_id, user_data):
+@bot.message_handler(commands=['start'])
+def start(message):
+    bot.reply_to(message, "Привет! Пришли мне свои данные (Дата, Время, Город), и я сделаю астро-разбор.")
+
+@bot.message_handler(func=lambda message: True)
+def handle_message(message):
+    user_data = message.text
+    chat_id = message.chat.id
+    
+    bot.send_message(chat_id, "📡 Сигналы получены! Нейросеть расшифровывает твой код...")
+    
     try:
-        client = openai.OpenAI(api_key=AI_KEY)
+        # Запрос к OpenAI
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "Ты Astro-Hacker. Структура: 📡 Статус | 🏗️ Эпизод | 🛠️ Хак | ⚠️ Баг | 💎 Шаг"},
-                {"role": "user", "content": f"Данные пользователя: {user_data}"}
+                {"role": "system", "content": "Ты Astro-Hacker. Структура ответа строго: 📡 Статус | 🏗️ Эпизод | 🛠️ Хак | ⚠️ Баг | 💎 Шаг"},
+                {"role": "user", "content": f"Сделай разбор для данных: {user_data}"}
             ]
         )
         answer = response.choices[0].message.content
-        send_telegram(user_id, answer)
+        bot.send_message(chat_id, answer)
+        
     except Exception as e:
-        send_telegram(user_id, f"Ошибка нейросети: {str(e)[:50]}")
+        bot.send_message(chat_id, f"⚠️ Ошибка: {str(e)[:100]}")
 
-@app.route('/astro_hack', methods=['POST'])
-def astro_hack():
-    # Получаем данные от PuzzleBot
-    data = request.json or {}
-    
-    # Печатаем в лог всё, что пришло, чтобы видеть ошибки
-    print(f"ПОЛУЧЕНО ОТ БОТА: {data}")
-    
-    user_id = data.get('user_id') or data.get('platform_id')
-    user_info = f"{data.get('b_date')} {data.get('b_time')} {data.get('b_city')}"
-
-    if user_id:
-        Thread(target=process_and_reply, args=(user_id, user_info)).start()
-        return "OK", 200
-    return "No ID", 400
-
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+if __name__ == "__main__":
+    print("Бот запущен напрямую...")
+    bot.infinity_polling()
