@@ -1,5 +1,6 @@
 import os
 import logging
+import re
 import json
 from flask import Flask, request, jsonify
 
@@ -11,66 +12,57 @@ app = Flask(__name__)
 # Health check
 @app.route('/', methods=['GET'])
 def home():
-    logger.info("✅ Health check / вызван")
     return jsonify({"status": "live", "message": "Astro-Hacker ready"})
 
 @app.route('/astro_hack', methods=['POST'])
 def astro_hack():
     logger.info("🚀 === НОВЫЙ ЗАПРОС ОТ PUZZLEBOT ===")
     
-    # Получаем сырые данные
-    raw_data = request.get_data().decode('utf-8').strip()
-    logger.info(f"Raw data от PuzzleBot: {raw_data}")
+    raw_data = request.get_data().decode('utf-8', errors='ignore').strip()
+    logger.info(f"RAW DATA: {raw_data}")
 
-    # Пытаемся парсить разными способами
+    # === АГРЕССИВНЫЙ ФИКС НЕВАЛИДНОГО JSON ОТ PUZZLEBOT ===
     data = None
-    
-    # 1. Стандартный JSON
     try:
-        data = request.get_json(force=True, silent=True)
-    except:
-        pass
-
-    # 2. Если не получилось — пытаемся почистить кривой формат PuzzleBot
-    if not data:
+        # Пытаемся почистить и добавить кавычки вокруг строк
+        cleaned = re.sub(r':\s*([^",\s][^,\n}]*)', r': "\1"', raw_data)
+        cleaned = cleaned.replace('""true""', 'true').replace('""false""', 'false')
+        cleaned = cleaned.replace('""', '"')
+        data = json.loads(cleaned)
+        logger.info("✅ JSON успешно исправлен и распарсен")
+    except Exception as e1:
+        logger.warning(f"Первый фикс не сработал: {e1}")
         try:
-            # Убираем лишние переносы и пробелы
-            cleaned = raw_data.replace('\n', '').replace('\r', '').strip()
-            # Если нет внешних фигурных скобок — добавляем
-            if not cleaned.startswith('{'):
-                cleaned = '{' + cleaned + '}'
+            # Запасной вариант: просто убираем всё лишнее и пробуем
+            cleaned = re.sub(r'\s+', ' ', raw_data)
+            cleaned = re.sub(r':\s*([^\s,}]+)', r': "\1"', cleaned)
             data = json.loads(cleaned)
-            logger.info("✅ Успешно почистили и распарсили кривой JSON")
-        except Exception as e:
-            logger.error(f"Не удалось распарсить даже после очистки: {e}")
-
-    if not data:
-        logger.error("Данные не получены вообще")
-        return jsonify({"bot_answer": "Ошибка: данные от PuzzleBot не дошли"}), 400
+        except Exception as e2:
+            logger.error(f"Все фиксы провалились: {e2}")
+            return jsonify({"bot_answer": f"Ошибка парсинга данных.\nRaw: {raw_data}"}), 400
 
     logger.info(f"Распарсенные данные: {data}")
 
-    # Берём нужные поля
     b_date = data.get('b_date')
     b_time = data.get('b_time')
     b_city = data.get('b_city', 'Киев')
     is_paid = data.get('is_paid', True)
 
-    # Тестовый ответ (чтобы сразу увидеть, что всё работает)
+    # === ТЕСТОВЫЙ ОТВЕТ (чтобы сразу увидеть результат) ===
     answer = f"""
-📡 Astro-Hacker v6.4
+📡 Astro-Hacker v6.5
 
 Дата рождения: {b_date}
-Время: {b_time}
+Время рождения: {b_time}
 Город: {b_city}
 
 Статус: {'VIP' if is_paid else 'DEMO'}
 
-Твой натальный код успешно проанализирован. 
-Сейчас я формирую полный разбор...
+✅ Данные успешно получены и обработаны.
+Сейчас формирую твой полный астрологический разбор...
     """.strip()
 
-    logger.info("✅ Ответ отправлен обратно в PuzzleBot")
+    logger.info("✅ Ответ отправлен обратно в бот")
     return jsonify({"bot_answer": answer})
 
 if __name__ == '__main__':
