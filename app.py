@@ -1,84 +1,64 @@
 import os
 import logging
 from flask import Flask, request, jsonify
-import openai
 
-# Настройка логирования (очень важно для отладки на Render)
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# Ключ OpenAI из переменных окружения Render
-openai_api_key = os.getenv("OPENAI_API_KEY")
-
-if not openai_api_key:
-    logger.error("OPENAI_API_KEY не найден в переменных окружения!")
+# Health check — чтобы видеть, жив ли сервер
+@app.route('/', methods=['GET'])
+def home():
+    logger.info("✅ Health check / вызван")
+    return jsonify({
+        "status": "live",
+        "message": "Astro-Hacker сервер работает. Отправляй POST на /astro_hack"
+    })
 
 @app.route('/astro_hack', methods=['POST'])
 def astro_hack():
-    logger.info("=== Новый запрос от PuzzleBot ===")
+    logger.info("🚀 === НОВЫЙ ЗАПРОС ОТ PUZZLEBOT ===")
+    logger.info(f"Headers: {dict(request.headers)}")
     
-    data = request.json
-    if not data:
-        logger.error("Данные не получены от PuzzleBot")
-        return jsonify({"bot_answer": "Ошибка: Данные не получены"}), 400
-
-    logger.info(f"Полученные данные: {data}")
-
-    # 1. Проверяем статус оплаты (работает и со строкой, и с bool)
-    is_paid = data.get('is_paid', False)
-    if isinstance(is_paid, str):
-        is_paid = is_paid.lower() in ('true', '1', 'yes', 'да')
-
-    # 2. Инструкция + лимиты по тарифу
-    if is_paid:
-        limit_instruction = "СТАТУС: VIP. Дай максимально развёрнутый, глубокий, детальный анализ натальной карты."
-        max_tokens = 2000
-    else:
-        limit_instruction = "СТАТУС: DEMO. Ответь ярко, но кратко (максимум 3-4 предложения). В конце обязательно добавь: 'Чтобы получить полный разбор, нажми кнопку ниже 👇'"
-        max_tokens = 600
-
-    system_prompt = """
-    SYSTEM PROMPT: ASTRO-HACKER AI (v.6.2)
-    Ты — Astro-Hacker. Анализируешь натальную карту как чертеж судьбы.
-    Тон: вдохновляющий прагматизм + немного космического вайба.
-    Структура ответа:
-    📡 Статус | 🏗️ Эпизод | 🛠️ Хак | ⚠️ Баг | 💎 Шаг
-    """
-
-    # Собираем данные пользователя
-    user_context = f"""
-    {limit_instruction}
-
-    USER DATA:
-    Дата рождения: {data.get('b_date') or 'не указано'}
-    Время рождения: {data.get('b_time') or 'не указано'}
-    Город: {data.get('b_city') or 'не указано'}
-    """
-
+    raw_data = request.get_data()
+    logger.info(f"Raw data: {raw_data}")
+    
     try:
-        client = openai.OpenAI(api_key=openai_api_key)
-        
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",          # можно поменять на gpt-4o, если хочешь ещё круче
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_context}
-            ],
-            temperature=0.75,
-            max_tokens=max_tokens
-        )
-        
-        answer = response.choices[0].message.content.strip()
-        logger.info("Успешно сгенерирован ответ OpenAI")
-        
-        return jsonify({"bot_answer": answer})
-    
+        data = request.json
+        logger.info(f"Parsed JSON: {data}")
     except Exception as e:
-        logger.error(f"Ошибка OpenAI: {str(e)}")
-        return jsonify({"bot_answer": f"Ошибка ядра Astro-Hacker: {str(e)}"}), 500
+        logger.error(f"Не удалось распарсить JSON: {e}")
+        data = None
 
+    if not data:
+        logger.error("Данные не получены!")
+        return jsonify({"bot_answer": "Ошибка: данные от PuzzleBot не дошли"}), 400
+
+    # Логируем всё, что пришло
+    b_date = data.get('b_date')
+    b_time = data.get('b_time')
+    b_city = data.get('b_city')
+    is_paid = data.get('is_paid', True)
+
+    logger.info(f"Дата: {b_date} | Время: {b_time} | Город: {b_city} | Paid: {is_paid}")
+
+    # Тестовый ответ (чтобы проверить, доходит ли вообще)
+    answer = f"""
+📡 Astro-Hacker v6.3
+
+Дата: {b_date}
+Время: {b_time}
+Город: {b_city}
+
+Статус: {'VIP' if is_paid else 'DEMO'}
+Анализ успешно сгенерирован (тестовый режим).
+    """
+
+    logger.info("✅ Ответ сформирован и отправлен обратно")
+    return jsonify({"bot_answer": answer.strip()})
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
+    port = int(os.environ.get('PORT', 10000))
+    logger.info(f"Сервер запущен на порту {port}")
+    app.run(host='0.0.0.0', port=port)
