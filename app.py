@@ -6,61 +6,62 @@ from threading import Thread
 
 app = Flask(__name__)
 
-# --- ДАННЫЕ (ПРОВЕРЕНО) ---
+# --- ДАННЫЕ УСТАНОВЛЕНЫ НАПРЯМУЮ ---
 TELEGRAM_TOKEN = "8614133630:AAHv3Qn4ufI6Mqfn9EB45T0n0EmWB0lgR28"
+# Ключ подтягивается из настроек Render (Environment Variables)
 AI_KEY = os.getenv("OPENAI_API_KEY")
 
-def send_telegram_debug(chat_id, text):
-    """Отправка сообщения с выводом результата в логи Render"""
+def send_telegram(chat_id, text):
+    if not chat_id:
+        return
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     try:
         r = requests.post(url, json={"chat_id": chat_id, "text": text})
-        print(f"DEBUG TELEGRAM: Status {r.status_code}, Response: {r.text}")
+        print(f"DEBUG TELEGRAM: {r.status_code}")
     except Exception as e:
         print(f"DEBUG TELEGRAM ERROR: {e}")
 
-def process_and_reply(user_id, user_data, is_paid):
-    print(f"DEBUG AI: Starting process for user {user_id}")
+def process_and_reply(user_id, user_data):
     try:
-        if not AI_KEY or "sk-" not in AI_KEY:
-            print("DEBUG AI ERROR: API Key is missing or invalid in Render settings!")
-            send_telegram_debug(user_id, "⚠️ Ошибка: Ключ OpenAI не настроен в Render.")
+        # Проверка ключа перед запуском
+        if not AI_KEY:
+            print("DEBUG ERROR: Ключ OpenAI не найден в настройках Render!")
             return
 
         client = openai.OpenAI(api_key=AI_KEY)
-        
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": "Ты Astro-Hacker. Структура: 📡 Статус | 🏗️ Эпизод | 🛠️ Хак | ⚠️ Баг | 💎 Шаг"},
-                {"role": "user", "content": f"Данные: {user_data}"}
+                {"role": "user", "content": f"Данные пользователя: {user_data}"}
             ]
         )
-        
         answer = response.choices[0].message.content
-        print("DEBUG AI: Response received from OpenAI")
-        send_telegram_debug(user_id, answer)
-        
+        send_telegram(user_id, answer)
     except Exception as e:
-        error_detail = str(e)
-        print(f"DEBUG AI CRITICAL ERROR: {error_detail}")
-        # Отправляем тех. информацию прямо в бот, чтобы ты увидел ошибку
-        send_telegram_debug(user_id, f"⚠️ Техническая ошибка OpenAI:\n{error_detail[:100]}")
+        print(f"DEBUG AI ERROR: {str(e)}")
+        send_telegram(user_id, "⚠️ Ошибка нейросети. Проверьте ключ или баланс.")
 
 @app.route('/astro_hack', methods=['POST'])
 def astro_hack():
-    data = request.json
-    print(f"DEBUG SERVER: Received POST request: {data}")
+    data = request.json or {}
+    # Забираем ID (поддерживаем оба варианта названия)
+    user_id = data.get('user_id') or data.get('platform_id')
     
-    if not data or 'user_id' not in data:
-        print("DEBUG SERVER ERROR: No user_id in request")
-        return "No ID", 400
+    # Собираем данные, убирая None, если какое-то поле пустое
+    b_date = data.get('b_date', '')
+    b_time = data.get('b_time', '')
+    b_city = data.get('b_city', '')
+    user_info = f"{b_date} {b_time} {b_city}".strip()
 
-    user_id = data.get('user_id')
-    user_data = f"{data.get('b_date')} {data.get('b_time')} {data.get('b_city')}"
+    print(f"DEBUG SERVER: Received request for ID: {user_id}")
 
-    Thread(target=process_and_reply, args=(user_id, user_data, False)).start()
-    return "OK", 200
+    if user_id and user_info:
+        Thread(target=process_and_reply, args=(user_id, user_info)).start()
+        return "OK", 200
+    else:
+        print("DEBUG SERVER ERROR: Missing user_id or user_data")
+        return "Missing Data", 400
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
