@@ -1,84 +1,56 @@
-import telebot
-import openai
 import os
-import re
-from flask import Flask
-from threading import Thread
-from telebot import types
-from geopy.geocoders import Nominatim
+from flask import Flask, request, jsonify
+import openai
 
-app = Flask('')
-@app.route('/')
-def home(): return "OK"
-def run_flask():
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 10000)))
+app = Flask(__name__)
 
-TOKEN = "8614133630:AAFeXuWBuhi0KjBeb9j5OAIji-RFjWy-Jdw"
-OPENAI_KEY = "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"
+# Ключ берется из переменных окружения Render
+openai_api_key = os.getenv("OPENAI_API_KEY")
 
-bot = telebot.TeleBot(TOKEN)
-client = openai.OpenAI(api_key=OPENAI_KEY)
-geolocator = Nominatim(user_agent="astro_final_fix")
-user_states = {}
-
-@bot.message_handler(commands=['start'])
-def start(message):
-    chat_id = message.chat.id
-    user_states[chat_id] = {'step': 'date', 'data': {}}
-    bot.send_message(chat_id, "Привет! Введите дату рождения (ДД.ММ.ГГГГ):")
-
-@bot.message_handler(func=lambda m: user_states.get(m.chat.id, {}).get('step') == 'date')
-def h_date(message):
-    if re.match(r'^\d{2}\.\d{2}\.\d{4}$', message.text):
-        user_states[message.chat.id]['data']['date'] = message.text
-        user_states[message.chat.id]['step'] = 'time'
-        bot.send_message(message.chat.id, "Введите время (ЧЧ:ММ):")
-    else:
-        bot.send_message(message.chat.id, "Формат: ДД.ММ.ГГГГ")
-
-@bot.message_handler(func=lambda m: user_states.get(m.chat.id, {}).get('step') == 'time')
-def h_time(message):
-    if re.match(r'^\d{2}:\d{2}$', message.text):
-        user_states[message.chat.id]['data']['time'] = message.text
-        user_states[message.chat.id]['step'] = 'city'
-        bot.send_message(message.chat.id, "В каком городе вы родились?")
-    else:
-        bot.send_message(message.chat.id, "Формат: ЧЧ:ММ")
-
-@bot.message_handler(func=lambda m: user_states.get(m.chat.id, {}).get('step') == 'city')
-def h_city(message):
-    chat_id = message.chat.id
-    city = message.text
-    bot.send_message(chat_id, "Минутку... 🔍")
-    try:
-        # Защита от GeocoderUnavailable (как в image_c762c2.jpg)
-        loc = geolocator.geocode(city, timeout=10)
-        res_city = loc.address if loc else city
-    except:
-        res_city = city
+@app.route('/astro_hack', methods=['POST'])
+def astro_hack():
+    # Получаем данные от PuzzleBot
+    data = request.json
+    if not data:
+        return jsonify({"bot_answer": "Ошибка: Данные не получены"}), 400
     
-    user_states[chat_id]['data']['city'] = res_city
-    user_states[chat_id]['step'] = 'confirm'
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
-    markup.add("✅ Да", "❌ Заново")
-    bot.send_message(chat_id, f"Город: {res_city}. Верно?", reply_markup=markup)
-
-@bot.message_handler(func=lambda m: user_states.get(m.chat.id, {}).get('step') == 'confirm')
-def h_conf(message):
-    if message.text == "✅ Да":
-        data = user_states[message.chat.id]['data']
-        bot.send_message(message.chat.id, "Генерирую разбор через ИИ...", reply_markup=types.ReplyKeyboardRemove())
-        def run_ai():
-            res = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[{"role": "user", "content": f"Сделай астро-разбор: {data}"}]
-            )
-            bot.send_message(message.chat.id, res.choices[0].message.content)
-        Thread(target=run_ai).start()
-        del user_states[message.chat.id]
+    # 1. Проверяем статус оплаты
+    is_paid = data.get('is_paid', False)
+    
+    # 2. Инструкция по объему
+    if is_paid:
+        limit_instruction = "СТАТУС: VIP. Дай максимально развернутый, глубокий анализ."
     else:
-        bot.send_message(message.chat.id, "Жми /start")
+        limit_instruction = "СТАТУС: DEMO. Ответь ярко, но кратко (макс 3-4 предложения). В конце добавь: 'Чтобы получить полный разбор, нажми кнопку ниже 👇'"
 
-if __name__ == "__main__":
-    Thread(target=run_flask).start()
-    bot.infinity_polling()
+    system_prompt = """
+    SYSTEM PROMPT: ASTRO-HACKER AI (v.6.1)
+    Роль: Ты — Astro-Hacker. Анализируй натальный код как чертеж.
+    Тон: Вдохновляющий прагматизм.
+    Структура: 📡 Статус | 🏗️ Эпизод | 🛠️ Хак | ⚠️ Баг | 💎 Шаг
+    """
+
+    user_context = f"""
+    {limit_instruction}
+    USER DATA:
+    Дата: {data.get('b_date')}, Время: {data.get('b_time')}, Город: {data.get('b_city')}
+    """
+
+    try:
+        client = openai.OpenAI(api_key=openai_api_key)
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_context}
+            ],
+            temperature=0.7
+        )
+        answer = response.choices[0].message.content
+        return jsonify({"bot_answer": answer})
+    
+    except Exception as e:
+        return jsonify({"bot_answer": f"Ошибка ядра: {str(e)}"}), 500
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
